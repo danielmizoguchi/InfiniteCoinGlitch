@@ -6,11 +6,20 @@ import backtrader as bt
 import datetime
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import os
+
 from data import extract_data
-from tradalgo import rf_algo
+from tradalgo import simple_algo
 import argparse
 
 def walk_forward_cv():
+    #Initialise folder storage index
+    index = datetime.date.strftime(datetime.datetime.now(), format='%Y-%m-%d-%H:%M')
+    os.mkdir('results/' + index)
+
     #Initialise results DataFrame for starting and ending values for each walking CV fold
     res_df = pd.DataFrame(columns=['Date','Open', 'Close'])
     res_df.set_index('Date', inplace=True)
@@ -24,29 +33,34 @@ def walk_forward_cv():
     data = extract_data.import_AUDUSD(start=earliest, end=latest)
 
     curr = earliest
+    fold_id = 0
 
     #Run walking cross validation (365 day steps, 5*365 day backtesting periods)
     while curr + period < latest:
         curr_data = data.loc[curr:curr + period]
-        start_value, end_value = runstrat(curr_data)
+        start_value, end_value = runstrat(curr_data, fold_id, index)
+
+        # Store results in Dataframe
         new_row = pd.Series(
             {"Open": start_value, "Close": end_value}
         )
         res_df.loc[curr] = new_row
         curr += datetime.timedelta(days = 365)
-    
+        fold_id += 1
+
     #Save results
-    res_df.to_csv('results/results_'+ datetime.date.strftime(datetime.datetime.now(), format='%Y-%m-%d-%H:%M') + '_.csv')
+
+    res_df.to_csv('results/' + index + '/results_.csv')
 
 
-def runstrat(data_df):
+def runstrat(data_df, fold_id, index):
     args = parse_args()
 
     # Create a cerebro entity
     cerebro = bt.Cerebro(stdstats=False)
 
     # Add a strategy
-    cerebro.addstrategy(rf_algo.TestStrategy)
+    cerebro.addstrategy(simple_algo.SmaCross)
 
     # Simulate the header row isn't there if noheaders requested
     skiprows = 1 if args.noheaders else 0
@@ -72,6 +86,16 @@ def runstrat(data_df):
     open = cerebro.broker.getvalue()
     cerebro.run()
     close = cerebro.broker.getvalue()
+
+    figs = cerebro.plot(iplot=False)
+    fig = figs[0][0]
+
+    fig.savefig(f"results/{index}/fold_{fold_id}.png",
+                dpi=300,
+                bbox_inches="tight")
+
+    plt.close(fig)
+
     return (open, close)
 
 def parse_args():
