@@ -3,25 +3,25 @@ from __future__ import (absolute_import, division, print_function,
 
 # Import the backtrader platform, data and trade strategy
 import backtrader as bt
+import backtrader.strategies as btstrats
+import backtrader.analyzers as btanalyzers
+
+# Import common libraries for data and plot handling
 import datetime
 import pandas as pd
-import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import os
-
-from data import extract_data
-from tradalgo import simple_algo
 import argparse
 
-def walk_forward_cv():
-    #Initialise folder storage index
-    index = datetime.date.strftime(datetime.datetime.now(), format='%Y-%m-%d-%H:%M')
-    os.mkdir('results/' + index)
+# Import custom modules for data and strategy
+from data import extract_data
+from tradalgo import simple_algo
 
+def walk_forward_cv():
     #Initialise results DataFrame for starting and ending values for each walking CV fold
-    res_df = pd.DataFrame(columns=['Date','Open', 'Close'])
+    res_df = pd.DataFrame(columns=['Date','Open', 'Close', 'Sharpe Ratio'])
     res_df.set_index('Date', inplace=True)
 
     #Set start and end dates
@@ -34,15 +34,18 @@ def walk_forward_cv():
 
     curr = earliest
     fold_id = 0
+    index = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
+    os.mkdir('results/' + index)
+
 
     #Run walking cross validation (365 day steps, 5*365 day backtesting periods)
     while curr + period < latest:
         curr_data = data.loc[curr:curr + period]
-        start_value, end_value = runstrat(curr_data, fold_id, index)
+        start_value, end_value, sharpe_ratio = runstrat(curr_data, fold_id, index)
 
         # Store results in Dataframe
         new_row = pd.Series(
-            {"Open": start_value, "Close": end_value}
+            {"Open": start_value, "Close": end_value, "Sharpe Ratio": sharpe_ratio}
         )
         res_df.loc[curr] = new_row
         curr += datetime.timedelta(days = 365)
@@ -50,7 +53,7 @@ def walk_forward_cv():
 
     #Save results
 
-    res_df.to_csv('results/' + index + '/results_.csv')
+    res_df.to_csv('results/' + index + '/results.csv')
 
 
 def runstrat(data_df, fold_id, index):
@@ -60,7 +63,11 @@ def runstrat(data_df, fold_id, index):
     cerebro = bt.Cerebro(stdstats=False)
 
     # Add a strategy
-    cerebro.addstrategy(simple_algo.SmaCross)
+    #cerebro.addstrategy(simple_algo.SmaCross)
+    cerebro.addstrategy(btstrats.SMA_CrossOver)
+
+    # Analyzer
+    cerebro.addanalyzer(btanalyzers.SharpeRatio, _name='sharpe')
 
     # Simulate the header row isn't there if noheaders requested
     skiprows = 1 if args.noheaders else 0
@@ -83,10 +90,13 @@ def runstrat(data_df, fold_id, index):
     )
     cerebro.broker.set_slippage_perc(perc=0.0001) # 1 pip
 
+    # Run trading algorithm fold
     open = cerebro.broker.getvalue()
-    cerebro.run()
+    cerebro_run = cerebro.run()
+    sharpe_ratio =  cerebro_run[0].analyzers.sharpe.get_analysis()['sharperatio']
     close = cerebro.broker.getvalue()
 
+    # Save plot figure
     figs = cerebro.plot(iplot=False)
     fig = figs[0][0]
 
@@ -96,7 +106,7 @@ def runstrat(data_df, fold_id, index):
 
     plt.close(fig)
 
-    return (open, close)
+    return (open, close, sharpe_ratio)
 
 def parse_args():
     parser = argparse.ArgumentParser(
