@@ -53,7 +53,7 @@ def walk_forward_cv():
 
     #Save results
 
-    res_df.to_csv('results/' + index + '/results_.csv')
+    res_df.to_csv('results/' + index + '/results.csv')
 
 
 def runstrat(data_df, fold_id, index):
